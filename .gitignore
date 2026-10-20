@@ -1,0 +1,22 @@
+# Dataset (muito grande para o GitHub, baixar separadamente)
+DataSet Raio-x/
+DataSet Melanoma Skin Cancer/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Usuários criados pelo app (gerado automaticamente na primeira execução)
+streamlit_app/data/
+
+# Editor / sistema
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+desktop.ini
+~$*
