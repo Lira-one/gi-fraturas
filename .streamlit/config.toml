@@ -1,0 +1,33 @@
+# Configuração do Streamlit (lida quando o app é iniciado a partir da raiz
+# do projeto: `streamlit run streamlit_app/app.py`).
+
+[server]
+# 0.0.0.0 = aceita conexões de outros aparelhos da mesma rede (celular via QR code).
+address = "0.0.0.0"
+port = 8501
+headless = true
+maxUploadSize = 20
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
+primaryColor = "#0F6E5E"
+backgroundColor = "#F4F7F6"
+secondaryBackgroundColor = "#E9F1EF"
+textColor = "#0B2B26"
+borderColor = "#D7E7E3"
+baseRadius = "10px"
+font = "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+headingFont = "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+headingFontWeights = [700, 700, 650, 600, 600, 600]
+
+[theme.sidebar]
+backgroundColor = "#0A4F43"
+secondaryBackgroundColor = "#0F6E5E"
+textColor = "#FFFFFF"
+borderColor = "#1C7A69"
