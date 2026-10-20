@@ -7,6 +7,8 @@ convolucionais, e um app em Streamlit pensado como ferramenta de apoio ao médic
 O app mostra a classificação, a probabilidade estimada e um mapa de atenção (Grad-CAM) indicando a
 região da imagem que mais pesou na decisão do modelo.
 
+**App online:** https://gi-fraturas.streamlit.app
+
 > Projeto acadêmico. O modelo não passou por validação clínica e não deve ser usado para diagnóstico.
 
 <p align="center">
