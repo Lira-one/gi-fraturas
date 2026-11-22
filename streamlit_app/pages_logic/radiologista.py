@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps
 
-from gradcam import compute_gradcam_heatmap, overlay_heatmap_on_image
+from gradcam import compute_gradcam_heatmap, hotspot_boxes, overlay_heatmap_on_image
 from model_utils import THRESHOLD, load_model, model_is_available, predict_from_array, prepare_image_array
 from theme import (
     DANGER_COLOR,
@@ -58,13 +58,11 @@ def _analyze(name: str, data: bytes) -> dict:
     with st.spinner("Analisando radiografia..."):
         result = predict_from_array(arr)
         heatmap = compute_gradcam_heatmap(load_model(), arr)
-        color = DANGER_COLOR if result["is_fractured"] else SUCCESS_COLOR
-        overlay = overlay_heatmap_on_image(image, heatmap, color_hex=color)
 
     analysis = {
         "name": name,
         "image": image.convert("RGB"),
-        "overlay": overlay,
+        "heatmap": heatmap,
         "result": result,
         "size": image.size,
         "analyzed_at": datetime.now(),
@@ -166,8 +164,31 @@ def _render_result(analysis: dict):
         if view == "Original":
             st.image(analysis["image"], width="stretch")
         else:
-            st.image(analysis["overlay"], width="stretch")
-            st.caption("Grad-CAM: região que mais influenciou a predição (aproximada).")
+            opacity = st.slider(
+                "Intensidade do mapa", 0.2, 0.9, 0.55, 0.05,
+                key=f"opacity_{analysis['name']}",
+            )
+            st.image(overlay_heatmap_on_image(analysis["image"], analysis["heatmap"], opacity=opacity),
+                     width="stretch")
+            n_regions = len(hotspot_boxes(analysis["heatmap"]))
+            if n_regions > 1:
+                boxes_text = f"As caixas numeradas marcam as {n_regions} regiões de maior influência (1 = mais forte)."
+            elif n_regions == 1:
+                boxes_text = "A caixa marca a região de maior influência."
+            else:
+                boxes_text = "Nenhuma região se destacou claramente: a atenção ficou espalhada."
+            render_html(
+                f"""
+                <div class="gi-heat-legend">
+                    <span>baixa</span><div class="gi-heat-bar"></div><span>alta influência</span>
+                </div>
+                <div class="gi-heat-note">
+                    Onde o modelo viu sinais de fratura (Grad-CAM++). {boxes_text}
+                    Se o destaque cair em letras, etiquetas ou bordas da imagem, o modelo está usando um
+                    atalho visual, não o osso.
+                </div>
+                """
+            )
 
     with col_res:
         card_class = "gi-result-fractured" if is_fractured else "gi-result-ok"
@@ -211,8 +232,10 @@ def _render_result(analysis: dict):
         st.markdown(
             "- **Probabilidade estimada** é a saída da função *sigmoid* do modelo. Ela **não é uma "
             "probabilidade clínica calibrada** (ver a curva de calibração no painel gerencial).\n"
-            "- **Mapa de atenção (Grad-CAM)** mostra *para onde o modelo olhou*, não uma segmentação "
-            "da fratura. A área marcada é aproximada (grade 52×52 ampliada para a imagem).\n"
+            "- **Mapa de atenção (Grad-CAM++)** mostra *onde o modelo viu sinais de fratura*, mesmo quando "
+            "o resultado final é Sem fratura. Não é uma segmentação da fratura: a área marcada é aproximada "
+            "(grade 52×52 ampliada para a imagem) e é a média de 13 versões levemente ruidosas da imagem, "
+            "para reduzir manchas aleatórias.\n"
             f"- O **limiar de decisão** é {pct(THRESHOLD, 0)}: acima dele, a imagem é classificada como "
             "*Fraturado*. Resultados a menos de 15 pontos do limiar são sinalizados como limítrofes.\n"
             "- O modelo só conhece radiografias parecidas com as do dataset de treino: imagens de "

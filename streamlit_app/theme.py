@@ -161,6 +161,17 @@ def inject_global_css():
         .gi-fact-label {{ font-size: 0.72rem; color: {MUTED_TEXT_COLOR}; }}
         .gi-fact-value {{ font-size: 0.95rem; font-weight: 600; color: {TEXT_COLOR}; word-break: break-word; }}
 
+        /* ---------- Legenda do mapa de atenção ---------- */
+        .gi-heat-legend {{
+            display:flex; align-items:center; gap:0.5rem; margin-top:0.4rem;
+            font-size:0.75rem; color:{MUTED_TEXT_COLOR};
+        }}
+        .gi-heat-bar {{
+            flex:1; height:8px; border-radius:999px;
+            background: linear-gradient(90deg, #30123b, #4686fb, #1ae4b6, #a2fc3c, #fabb39, #e4460a, #7a0403);
+        }}
+        .gi-heat-note {{ font-size:0.8rem; color:{MUTED_TEXT_COLOR}; margin-top:0.4rem; line-height:1.4; }}
+
         /* ---------- Avisos ---------- */
         .gi-disclaimer {{
             display:flex; gap:0.7rem; align-items:flex-start;
