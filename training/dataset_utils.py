@@ -16,7 +16,7 @@ from pathlib import Path
 import tensorflow as tf
 
 IMG_SIZE = (224, 224)
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 SEED = 42
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +24,10 @@ DATASET_DIR = PROJECT_ROOT / "DataSet Raio-x" / "dataset"
 TRAIN_DIR = DATASET_DIR / "train"
 VALIDATION_DIR = DATASET_DIR / "validation"
 MODELS_DIR = PROJECT_ROOT / "models"
-MODEL_PATH = MODELS_DIR / "fracture_cnn_mobilenetv2.keras"
+MODEL_PATH = MODELS_DIR / "cnn_fraturas.keras"
 METRICS_PATH = MODELS_DIR / "metrics.json"
+CURVES_PATH = MODELS_DIR / "evaluation_curves.json"
+HISTORY_PATH = MODELS_DIR / "train_history.json"
 
 # Classe positiva (índice 1) = "fractured", para que a saída sigmoid do
 # modelo seja diretamente P(fratura) e as métricas do sklearn (que usam

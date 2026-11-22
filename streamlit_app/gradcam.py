@@ -4,90 +4,44 @@ do modelo, e uma caixa delimitadora ao redor da região de maior ativação.
 
 Isto é uma ferramenta de **interpretabilidade visual**, não uma segmentação
 médica da fratura: o mapa é calculado a partir da última camada convolucional
-do MobileNetV2 (grade 7×7, depois ampliada para o tamanho da imagem), então a
-localização é aproximada e de baixa resolução espacial. Serve para o
-radiologista entender "para onde o modelo olhou", não para apontar com
-precisão anatômica a linha de fratura.
+da CNN (grade 52×52, depois ampliada para o tamanho da imagem), então a
+localização é aproximada. Serve para o radiologista entender "para onde o
+modelo olhou", não para apontar com precisão anatômica a linha de fratura.
 """
 import numpy as np
 import tensorflow as tf
 from PIL import Image, ImageDraw
 
 
-def _find_base_conv_model(model) -> tf.keras.Model:
-    """Encontra o modelo convolucional aninhado (MobileNetV2) dentre as
-    camadas do modelo treinado — é o que tem mais camadas (a cabeça de
-    data_augmentation também é um modelo aninhado, mas tem só 3 camadas)."""
-    nested_models = [l for l in model.layers if isinstance(l, tf.keras.Model)]
-    if not nested_models:
-        raise ValueError("Nenhum modelo convolucional aninhado encontrado.")
-    return max(nested_models, key=lambda l: len(l.layers))
-
-
-def _find_last_conv_layer_name(base_model: tf.keras.Model) -> str:
-    for layer in base_model.layers:
-        if layer.name == "out_relu":
-            return layer.name
-    for layer in reversed(base_model.layers):
-        try:
-            if len(layer.output.shape) == 4:
-                return layer.name
-        except (AttributeError, ValueError):
-            continue
-    raise ValueError("Nenhuma camada convolucional 4D encontrada na base.")
-
-
-def _split_layers_around_base(model: tf.keras.Model, base_model: tf.keras.Model):
-    """Separa as camadas de nível superior do modelo treinado em 'antes' e
-    'depois' da base convolucional (ex.: antes = data_augmentation +
-    Rescaling; depois = GlobalAveragePooling2D + Dropout + Dense). A
-    InputLayer é descartada (é só um marcador simbólico, não se chama).
-    """
-    pre_layers, post_layers = [], []
-    seen_base = False
-    for layer in model.layers:
-        if isinstance(layer, tf.keras.layers.InputLayer):
-            continue
-        if layer is base_model:
-            seen_base = True
-            continue
-        (post_layers if seen_base else pre_layers).append(layer)
-    return pre_layers, post_layers
+def _last_conv_index(model: tf.keras.Model) -> int:
+    for i in range(len(model.layers) - 1, -1, -1):
+        if isinstance(model.layers[i], tf.keras.layers.Conv2D):
+            return i
+    raise ValueError("Nenhuma camada Conv2D encontrada no modelo.")
 
 
 def compute_gradcam_heatmap(model: tf.keras.Model, preprocessed_batch) -> np.ndarray:
     """Recebe um lote (1, H, W, 3) com pixels originais (0-255) — o próprio
     modelo salvo já normaliza internamente — e devolve um heatmap 2D
-    (resolução da última camada convolucional, ex. 7x7) normalizado em
-    [0, 1], onde valores maiores indicam maior influência na predição de
-    'Fraturado'.
+    (resolução da última camada convolucional) normalizado em [0, 1], onde
+    valores maiores indicam maior influência na predição de 'Fraturado'.
 
-    Implementado chamando as camadas uma a uma em modo eager (em vez de
-    montar um novo `tf.keras.Model(inputs=..., outputs=[...])` a partir de
-    camadas de um modelo aninhado): no Keras 3, construir um Model assim a
-    partir da saída de uma camada interna de um submodelo já chamado levanta
-    `ValueError: Output ... is not connected to inputs`, mesmo quando a
-    conexão existe de fato no grafo de execução eager.
+    As camadas são chamadas uma a uma em modo eager (training=False, então o
+    data augmentation e o Dropout ficam desligados), guardando a saída da
+    última Conv2D para calcular o gradiente em relação a ela.
     """
-    base_model = _find_base_conv_model(model)
-    last_conv_layer_name = _find_last_conv_layer_name(base_model)
-    conv_submodel = tf.keras.models.Model(
-        inputs=base_model.input,
-        outputs=base_model.get_layer(last_conv_layer_name).output,
-    )
-    pre_layers, post_layers = _split_layers_around_base(model, base_model)
-
-    x = preprocessed_batch
-    for layer in pre_layers:
-        x = layer(x, training=False)
-
+    last_conv = _last_conv_index(model)
     with tf.GradientTape() as tape:
-        tape.watch(x)
-        conv_output = conv_submodel(x, training=False)
-        y = conv_output
-        for layer in post_layers:
-            y = layer(y, training=False)
-        loss = y[:, 0]  # saída sigmoid única = P(fratura)
+        x = tf.convert_to_tensor(preprocessed_batch)
+        conv_output = None
+        for i, layer in enumerate(model.layers):
+            if isinstance(layer, tf.keras.layers.InputLayer):
+                continue
+            x = layer(x, training=False)
+            if i == last_conv:
+                conv_output = x
+                tape.watch(conv_output)
+        loss = x[:, 0]  # saída sigmoid única = P(fratura)
 
     grads = tape.gradient(loss, conv_output)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))

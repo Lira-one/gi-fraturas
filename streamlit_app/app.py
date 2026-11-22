@@ -37,12 +37,13 @@ if "user" not in st.session_state:
 def _render_hero():
     metrics = load_metrics()
     stats = ""
-    if metrics:
+    if metrics and "validation" in metrics:
+        val = metrics["validation"]
         stats = f"""
         <div class="gi-hero-stats">
-            <div class="gi-hero-stat"><b>{pct(metrics['recall'], 0)}</b>sensibilidade p/ fraturas</div>
-            <div class="gi-hero-stat"><b>{num(metrics.get('auc', 0), 2)}</b>AUC no teste</div>
-            <div class="gi-hero-stat"><b>{num(metrics['test_size'])}</b>radiografias de teste</div>
+            <div class="gi-hero-stat"><b>{pct(val['accuracy'])}</b>acurácia na validação</div>
+            <div class="gi-hero-stat"><b>{num(val['auc'], 2)}</b>AUC na validação</div>
+            <div class="gi-hero-stat"><b>{num(val['size'] + metrics['test_size'])}</b>radiografias avaliadas</div>
         </div>
         """
     render_html(
@@ -55,8 +56,8 @@ def _render_hero():
                 </div>
             </div>
             <h1>Uma segunda leitura da radiografia, em segundos.</h1>
-            <p>Rede neural (MobileNetV2) treinada para sinalizar possíveis fraturas e mostrar
-            onde ela concentrou atenção. O laudo continua com o radiologista.</p>
+            <p>Rede neural convolucional (CNN) treinada do zero para sinalizar possíveis fraturas
+            e mostrar onde ela concentrou atenção. O laudo continua com o radiologista.</p>
             <ul class="gi-hero-features">
                 <li><span class="gi-dot">🩻</span><span><b>Análise imediata</b> — envie JPG/PNG e receba a classificação com a probabilidade estimada.</span></li>
                 <li><span class="gi-dot">📍</span><span><b>Mapa de atenção (Grad-CAM)</b> — destaca a região que mais influenciou o modelo.</span></li>

@@ -1,10 +1,12 @@
 """Painel do Gerente/Chefe Clínico: métricas do modelo e visão de volume de
 exames analisados pela equipe.
 
-As análises espelham as seções de avaliação do notebook de referência
-(Laboratório/Deteccao_Fraturas.ipynb): matriz de confusão (19), Precision /
-Recall / F1 (20-22), curva ROC (24), Precision-Recall e efeito do threshold
-(25), curvas de treino (15-16), calibração (32) e limitações (35).
+As análises espelham as seções de avaliação do notebook do projeto
+(Laboratório/): matriz de confusão (19), Precision / Recall / F1 (20-22),
+curva ROC (24), Precision-Recall e efeito do threshold (25), curvas de treino
+(15-16), calibração (32) e limitações (35). Como no notebook, as métricas são
+mostradas para a validação (estimativa mais realista) e para o teste
+(provavelmente otimista, ver seção 10).
 """
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,19 +30,29 @@ from theme import (
     section_title,
 )
 
-SPLIT_LABELS = {"train": "Treino", "validation": "Validação", "test": "Teste (holdout)"}
+SPLIT_LABELS = {"train": "Treino", "validation": "Validação", "test": "Teste (15% do treino)"}
+SET_OPTIONS = {"Validação": "validation", "Teste": "test"}
+# Cores fixas por conjunto em todos os gráficos.
+SET_COLORS = {"validation": SERIES_1, "test": SERIES_2}
+GRID = "#e1e0d9"
 
 
 def _chart(fig: go.Figure):
     st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
 
+def _set_metrics(metrics: dict, key: str) -> dict:
+    """Métricas de um conjunto. As do teste ficam no nível de cima do JSON."""
+    if key == "validation":
+        return metrics["validation"]
+    return {**metrics, "size": metrics["test_size"]}
+
+
 # --------------------------------------------------------------- gráficos ----
 
-def _confusion_matrix_figure(metrics: dict) -> go.Figure:
-    cm = metrics["confusion_matrix"]
-    # Ordem = class_names (índice 0 = not fractured, índice 1 = fractured)
-    labels = metrics.get("display_names", ["Sem fratura", "Fraturado"])
+def _confusion_matrix_figure(m: dict, labels) -> go.Figure:
+    c = m["confusion_counts"]
+    cm = [[c["tn"], c["fp"]], [c["fn"], c["tp"]]]
     names = [["Verdadeiro negativo", "Falso positivo"], ["Falso negativo", "Verdadeiro positivo"]]
     row_totals = [sum(row) for row in cm]
     z_max = max(max(row) for row in cm)
@@ -63,75 +75,65 @@ def _confusion_matrix_figure(metrics: dict) -> go.Figure:
             value = cm[i][j]
             fig.add_annotation(
                 x=labels[j], y=labels[i], showarrow=False,
-                text=(f"<b>{num(value)}</b><br><span style='font-size:11px'>{names[i][j]}"
+                text=(f"<b>{num(value)}</b><br><span style='font-size:11px'>{names[i][j].replace(' ', '<br>')}"
                       f"<br>{pct(value / row_totals[i])} da linha</span>"),
                 font=dict(size=17, color="#ffffff" if value > z_max * 0.45 else CHART_INK),
             )
     fig.update_layout(**base_chart_layout(
         height=340,
         margin=dict(l=8, r=8, t=8, b=8),
-        xaxis=dict(title="Previsto pelo modelo", side="bottom", tickfont=dict(color=CHART_MUTED)),
-        yaxis=dict(title="Classe real", autorange="reversed", tickfont=dict(color=CHART_MUTED)),
+        xaxis=dict(title="Previsto pelo modelo", side="bottom"),
+        yaxis=dict(title="Classe real", autorange="reversed"),
     ))
     return fig
 
 
-def _reference_line(x, y, name: str) -> go.Scatter:
+def _reference_line(x, y) -> go.Scatter:
     return go.Scatter(
-        x=x, y=y, mode="lines", name=name,
+        x=x, y=y, mode="lines",
         line=dict(color=CHART_AXIS, width=1.5, dash="dash"),
         hoverinfo="skip", showlegend=False,
     )
 
 
-def _roc_figure(curves: dict, metrics: dict) -> go.Figure:
-    roc = curves["roc"]
-    c = metrics["confusion_counts"]
-    op_fpr = c["fp"] / (c["fp"] + c["tn"])
-    op_tpr = c["tp"] / (c["tp"] + c["fn"])
-    fig = go.Figure([
-        _reference_line([0, 1], [0, 1], "Chute aleatório"),
-        go.Scatter(
-            x=roc["fpr"], y=roc["tpr"], mode="lines", name="MobileNetV2",
-            line=dict(color=SERIES_1, width=2), showlegend=False,
-            hovertemplate="Falsos positivos: %{x:.1%}<br>Sensibilidade: %{y:.1%}<extra></extra>",
-        ),
-        go.Scatter(
-            x=[op_fpr], y=[op_tpr], mode="markers", name="Limiar atual",
-            marker=dict(size=10, color=SERIES_1, line=dict(color="#ffffff", width=2)), showlegend=False,
-            hovertemplate=f"Limiar {pct(metrics['threshold'], 0)}<br>FPR %{{x:.1%}} · TPR %{{y:.1%}}<extra></extra>",
-        ),
-    ])
-    fig.add_annotation(x=op_fpr, y=op_tpr, text=f"limiar {pct(metrics['threshold'], 0)}", showarrow=False,
-                       xanchor="left", xshift=9, yshift=-12, font=dict(size=11, color=CHART_INK))
+def _roc_figure(curves: dict) -> go.Figure:
+    fig = go.Figure([_reference_line([0, 1], [0, 1])])
+    for label, key in SET_OPTIONS.items():
+        roc = curves[key]["roc"]
+        fig.add_trace(go.Scatter(
+            x=roc["fpr"], y=roc["tpr"], mode="lines", name=f"{label} (AUC {num(roc['auc'], 3)})",
+            line=dict(color=SET_COLORS[key], width=2),
+            hovertemplate=f"{label}<br>Falsos positivos: %{{x:.1%}}<br>Sensibilidade: %{{y:.1%}}<extra></extra>",
+        ))
     fig.add_annotation(x=0.62, y=0.5, text="chute aleatório", showarrow=False, textangle=-38,
                        font=dict(size=10, color=CHART_MUTED))
     fig.update_layout(**base_chart_layout(
-        height=330,
-        xaxis=dict(title="Taxa de falsos positivos", tickformat=".0%", range=[0, 1], gridcolor="#e1e0d9"),
-        yaxis=dict(title="Sensibilidade (recall)", tickformat=".0%", range=[0, 1.02], gridcolor="#e1e0d9"),
-        title=dict(text=f"Curva ROC · AUC {num(roc['auc'], 3)}", font=dict(size=13, color=CHART_INK), x=0.01),
+        height=340,
+        margin=dict(l=8, r=8, t=56, b=8),
+        xaxis=dict(title="Taxa de falsos positivos", tickformat=".0%", range=[0, 1], gridcolor=GRID),
+        yaxis=dict(title="Sensibilidade (recall)", tickformat=".0%", range=[0, 1.02], gridcolor=GRID),
+        title=dict(text="Curva ROC", font=dict(size=13, color=CHART_INK), x=0.01, y=0.98),
+        legend=dict(y=1.0),
     ))
     return fig
 
 
 def _pr_figure(curves: dict) -> go.Figure:
-    pr = curves["pr"]
-    fig = go.Figure([
-        _reference_line([0, 1], [pr["baseline"], pr["baseline"]], "Prevalência"),
-        go.Scatter(
-            x=pr["recall"], y=pr["precision"], mode="lines", name="MobileNetV2",
-            line=dict(color=SERIES_1, width=2), showlegend=False,
-            hovertemplate="Recall: %{x:.1%}<br>Precisão: %{y:.1%}<extra></extra>",
-        ),
-    ])
-    fig.add_annotation(x=0.02, y=pr["baseline"], text=f"prevalência de fraturas ({pct(pr['baseline'])})",
-                       showarrow=False, xanchor="left", yshift=-10, font=dict(size=10, color=CHART_MUTED))
+    fig = go.Figure()
+    for label, key in SET_OPTIONS.items():
+        pr = curves[key]["pr"]
+        fig.add_trace(go.Scatter(
+            x=pr["recall"], y=pr["precision"], mode="lines", name=f"{label} (AP {num(pr['average_precision'], 3)})",
+            line=dict(color=SET_COLORS[key], width=2),
+            hovertemplate=f"{label}<br>Recall: %{{x:.1%}}<br>Precisão: %{{y:.1%}}<extra></extra>",
+        ))
     fig.update_layout(**base_chart_layout(
-        height=330,
-        xaxis=dict(title="Recall (sensibilidade)", tickformat=".0%", range=[0, 1], gridcolor="#e1e0d9"),
-        yaxis=dict(title="Precisão", tickformat=".0%", range=[0.4, 1.02], gridcolor="#e1e0d9"),
-        title=dict(text=f"Precision-Recall · AP {num(pr['average_precision'], 3)}", font=dict(size=13, color=CHART_INK), x=0.01),
+        height=340,
+        margin=dict(l=8, r=8, t=56, b=8),
+        xaxis=dict(title="Recall (sensibilidade)", tickformat=".0%", range=[0, 1], gridcolor=GRID),
+        yaxis=dict(title="Precisão", tickformat=".0%", range=[0.4, 1.02], gridcolor=GRID),
+        title=dict(text="Precision-Recall", font=dict(size=13, color=CHART_INK), x=0.01, y=0.98),
+        legend=dict(y=1.0),
     ))
     return fig
 
@@ -139,10 +141,10 @@ def _pr_figure(curves: dict) -> go.Figure:
 def _calibration_figure(curves: dict) -> go.Figure:
     cal = curves["calibration"]
     fig = go.Figure([
-        _reference_line([0, 1], [0, 1], "Calibração perfeita"),
+        _reference_line([0, 1], [0, 1]),
         go.Scatter(
-            x=cal["mean_predicted"], y=cal["fraction_positive"], mode="lines+markers", name="MobileNetV2",
-            line=dict(color=SERIES_1, width=2), marker=dict(size=8, line=dict(color="#ffffff", width=2)),
+            x=cal["mean_predicted"], y=cal["fraction_positive"], mode="lines+markers", name="Teste",
+            line=dict(color=SET_COLORS["test"], width=2), marker=dict(size=8, line=dict(color="#ffffff", width=2)),
             showlegend=False,
             hovertemplate="Prob. média prevista: %{x:.0%}<br>Fração real com fratura: %{y:.0%}<extra></extra>",
         ),
@@ -151,14 +153,14 @@ def _calibration_figure(curves: dict) -> go.Figure:
                        font=dict(size=10, color=CHART_MUTED))
     fig.update_layout(**base_chart_layout(
         height=330,
-        xaxis=dict(title="Probabilidade prevista pelo modelo", tickformat=".0%", range=[0, 1], gridcolor="#e1e0d9"),
-        yaxis=dict(title="Fração real com fratura", tickformat=".0%", range=[0, 1.02], gridcolor="#e1e0d9"),
-        title=dict(text="Curva de calibração", font=dict(size=13, color=CHART_INK), x=0.01),
+        xaxis=dict(title="Probabilidade prevista pelo modelo", tickformat=".0%", range=[0, 1], gridcolor=GRID),
+        yaxis=dict(title="Fração real com fratura", tickformat=".0%", range=[0, 1.02], gridcolor=GRID),
+        title=dict(text="Curva de calibração (teste)", font=dict(size=13, color=CHART_INK), x=0.01),
     ))
     return fig
 
 
-def _history_figure(history: dict, metric: str, title: str, fmt: str) -> go.Figure:
+def _history_figure(history: dict, metric: str, title: str, fmt: str, best_epoch: int) -> go.Figure:
     epochs = list(range(1, len(history[metric]) + 1))
     fig = go.Figure()
     for key, name, color in [(metric, "Treino", SERIES_1), (f"val_{metric}", "Validação", SERIES_2)]:
@@ -167,14 +169,17 @@ def _history_figure(history: dict, metric: str, title: str, fmt: str) -> go.Figu
             line=dict(color=color, width=2), marker=dict(size=8, line=dict(color="#ffffff", width=2)),
             hovertemplate=f"{name}: %{{y:{fmt}}}<extra></extra>",
         ))
+    fig.add_vline(x=best_epoch, line=dict(color=CHART_AXIS, width=1.5, dash="dash"))
+    fig.add_annotation(x=best_epoch, y=1, yref="paper", text="melhor época", showarrow=False,
+                       xanchor="left", xshift=4, font=dict(size=10, color=CHART_MUTED))
     fig.update_layout(**base_chart_layout(
         height=300,
         hovermode="x unified",
         title=dict(text=title, font=dict(size=13, color=CHART_INK), x=0.01, y=0.98),
         margin=dict(l=8, r=8, t=56, b=8),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1),
-        xaxis=dict(title="Época", dtick=1, gridcolor="#e1e0d9"),
-        yaxis=dict(tickformat=fmt, gridcolor="#e1e0d9"),
+        legend=dict(y=1.0, xanchor="right", x=1),
+        xaxis=dict(title="Época", dtick=1, gridcolor=GRID),
+        yaxis=dict(tickformat=fmt, gridcolor=GRID),
     ))
     return fig
 
@@ -197,7 +202,7 @@ def _distribution_figure(dataset_counts: dict) -> go.Figure:
         bargroupgap=0.06,
         barcornerradius=4,
         separators=",.",
-        yaxis=dict(title="Nº de imagens", gridcolor="#e1e0d9"),
+        yaxis=dict(title="Nº de imagens", gridcolor=GRID),
         xaxis=dict(gridcolor="rgba(0,0,0,0)"),
     ))
     return fig
@@ -205,22 +210,31 @@ def _distribution_figure(dataset_counts: dict) -> go.Figure:
 
 # ------------------------------------------------------------------ abas ----
 
-def _tab_desempenho(metrics: dict):
-    c = metrics["confusion_counts"]
+def _tab_desempenho(metrics: dict, m: dict, set_label: str):
+    c = m["confusion_counts"]
     tn, fp, fn, tp = c["tn"], c["fp"], c["fn"], c["tp"]
+    labels = metrics.get("display_names", ["Sem fratura", "Fraturado"])
     col_cm, col_read = st.columns([1.2, 1], gap="large")
     with col_cm:
-        section_title("Matriz de confusão", "Linhas = classe real · colunas = previsão do modelo · % por linha.")
-        _chart(_confusion_matrix_figure(metrics))
+        section_title(f"Matriz de confusão — {set_label}",
+                      "Linhas = classe real · colunas = previsão do modelo · % por linha.")
+        _chart(_confusion_matrix_figure(m, labels))
     with col_read:
-        section_title("Leitura clínica dos erros")
+        section_title("Leitura dos erros")
+        if fn > fp:
+            balanco = (f"Com o limiar em {pct(metrics['threshold'], 0)}, o modelo erra mais por **omissão** "
+                       "(fraturas não identificadas) do que por falso alarme.")
+        elif fp > fn:
+            balanco = (f"Com o limiar em {pct(metrics['threshold'], 0)}, o modelo erra mais por **falso alarme** "
+                       "do que por omissão.")
+        else:
+            balanco = "Falsos positivos e falsos negativos ocorreram em quantidades iguais."
         st.markdown(
             f"- **{num(fn)} fraturas não identificadas** (falsos negativos) de {num(tp + fn)} "
             f"radiografias com fratura — {pct(fn / (tp + fn))} das fraturas reais.\n"
             f"- **{num(fp)} falsos alarmes** (falsos positivos) de {num(tn + fp)} radiografias "
             f"sem fratura — {pct(fp / (tn + fp))}.\n"
-            f"- Com o limiar em {pct(metrics['threshold'], 0)}, o modelo privilegia a **sensibilidade**: "
-            "erra mais por excesso (alarme) do que por omissão, o que é desejável numa ferramenta de triagem."
+            f"- {balanco}"
         )
         precisao_nf = tn / (tn + fn) if (tn + fn) else 0
         especificidade = tn / (tn + fp) if (tn + fp) else 0
@@ -234,32 +248,34 @@ def _tab_desempenho(metrics: dict):
 
 
 def _tab_curvas(metrics: dict, curves):
-    if curves is None:
+    if curves is None or "validation" not in curves:
         st.info(
-            "As curvas ainda não foram geradas. Execute `python training/evaluate_curves.py` "
+            "As curvas ainda não foram geradas. Execute `python training/evaluate_model.py` "
             "a partir da raiz do projeto.",
             icon=":material/info:",
         )
         return
     col_roc, col_pr = st.columns(2, gap="medium")
     with col_roc:
-        _chart(_roc_figure(curves, metrics))
-        st.caption("Quanto mais a curva se aproxima do canto superior esquerdo, melhor. O ponto marca o limiar em uso.")
+        _chart(_roc_figure(curves))
+        st.caption("Quanto mais a curva se aproxima do canto superior esquerdo, melhor. "
+                   "O AUC não depende do limiar.")
     with col_pr:
         _chart(_pr_figure(curves))
-        st.caption("Mostra quanto de precisão se perde ao exigir mais sensibilidade. Útil quando os falsos alarmes têm custo.")
+        st.caption("Mostra quanto de precisão se perde ao exigir mais sensibilidade.")
 
     col_cal, col_thr = st.columns(2, gap="medium")
     with col_cal:
         _chart(_calibration_figure(curves))
         st.caption(
-            "Pontos abaixo da diagonal = o modelo **superestima** a chance de fratura naquela faixa. "
-            "Por isso a probabilidade exibida ao radiologista não deve ser lida como risco clínico."
+            "Quanto mais perto da diagonal, mais as probabilidades coincidem com a frequência real de "
+            "fraturas no teste. A probabilidade exibida ao radiologista não deve ser lida como risco clínico."
         )
     with col_thr:
         section_title(
-            "Efeito do limiar de decisão",
-            "Subir o limiar reduz falsos alarmes, mas deixa passar mais fraturas.",
+            "Efeito do limiar de decisão (teste)",
+            "Subir o limiar reduz falsos alarmes, mas deixa passar mais fraturas. "
+            "Para escolher um limiar, use a validação, não o teste.",
         )
         df = pd.DataFrame(curves["threshold_table"])
         df.insert(0, "em uso", df["threshold"].round(2) == round(metrics["threshold"], 2))
@@ -282,16 +298,19 @@ def _tab_curvas(metrics: dict, curves):
 def _tab_treinamento(metrics: dict):
     history = metrics.get("train_history")
     if not history:
-        st.info("Histórico de treino indisponível em `metrics.json`.")
+        st.info("O histórico de treino deste modelo não está disponível (ele foi treinado no Colab). "
+                "As curvas de acurácia e loss por época estão no notebook, seções 15 e 16.",
+                icon=":material/info:")
         return
+    best_epoch = min(range(len(history["val_loss"])), key=history["val_loss"].__getitem__) + 1
     col_acc, col_loss = st.columns(2, gap="medium")
     with col_acc:
-        _chart(_history_figure(history, "accuracy", "Acurácia por época", ".0%"))
+        _chart(_history_figure(history, "accuracy", "Acurácia por época", ".0%", best_epoch))
     with col_loss:
-        _chart(_history_figure(history, "loss", "Loss (binary cross-entropy)", ".2f"))
+        _chart(_history_figure(history, "loss", "Loss (binary cross-entropy)", ".2f", best_epoch))
     st.caption(
-        f"{len(history['loss'])} épocas com Early Stopping (paciência 5, monitorando a loss de validação). "
-        "Uma distância grande e crescente entre treino e validação indicaria overfitting."
+        f"{len(history['loss'])} épocas com Early Stopping (paciência 5, monitorando a loss de validação); "
+        f"pesos restaurados da época {best_epoch}. Treino melhorando enquanto a validação estagna indica overfitting."
     )
 
 
@@ -306,9 +325,11 @@ def _tab_dataset(metrics: dict):
         total = sum(v for split in counts.values() for v in split.values())
         st.markdown(
             f"- **{num(total)} radiografias** no total.\n"
-            "- **Teste (holdout):** 15% de `train/`, estratificado por classe, nunca visto no treino.\n"
-            "- **Validação:** pasta `validation/` original, usada só para o Early Stopping.\n"
-            "- Classes equilibradas no treino, então a acurácia não é inflada por desbalanceamento."
+            "- **Teste:** 15% de `train/`, sorteados imagem a imagem e estratificados por classe "
+            "(semente 42).\n"
+            "- **Validação:** pasta `validation/` original, de outra origem; usada no Early Stopping.\n"
+            "- O dataset traz **cópias rotacionadas da mesma radiografia**: todas as imagens do teste "
+            "têm uma \"irmã\" no treino, por isso o teste tende a ser otimista."
         )
         rows = [
             {"Conjunto": SPLIT_LABELS.get(s, s), "Sem fratura": v["not fractured"], "Fraturado": v["fractured"],
@@ -351,35 +372,51 @@ def _tab_atividade():
 def render():
     page_header(
         "Dashboard Gerencial",
-        "Desempenho do modelo no conjunto de teste e atividade da equipe.",
+        "Desempenho da CNN na validação e no teste, e atividade da equipe.",
         eyebrow="Gerente / Chefe Clínico",
     )
 
     metrics = load_metrics()
-    if metrics is None:
+    if metrics is None or "validation" not in metrics:
         st.error(
-            "Nenhuma métrica encontrada em `models/metrics.json`. "
-            "Execute `python training/train_model.py` a partir da raiz do projeto "
-            "para treinar o modelo e gerar os resultados."
+            "Métricas não encontradas em `models/metrics.json`. Execute "
+            "`python training/evaluate_model.py` a partir da raiz do projeto."
         )
         return
 
+    set_label = st.segmented_control(
+        "Conjunto avaliado", list(SET_OPTIONS), default="Validação", key="gerente_conjunto",
+    ) or "Validação"
+    set_key = SET_OPTIONS[set_label]
+    m = _set_metrics(metrics, set_key)
+
+    if set_key == "validation":
+        disclaimer(
+            "<b>Validação: estimativa mais realista.</b> Imagens de outra origem, que a rede não usou para "
+            "ajustar os pesos (servem só para o Early Stopping).",
+            icon="✅",
+        )
+    else:
+        disclaimer(
+            "<b>Teste: provavelmente otimista.</b> Foi sorteado do próprio treino, imagem a imagem, e o dataset "
+            "traz cópias rotacionadas da mesma radiografia; todas as imagens do teste têm uma \"irmã\" no treino.",
+            icon="⚠️",
+        )
+
     kpi_grid([
-        {"label": "Recall / Sensibilidade", "value": pct(metrics["recall"]),
-         "hint": "fraturas reais que o modelo detecta", "highlight": True},
-        {"label": "Precisão (Fratura)", "value": pct(metrics["precision"]),
+        {"label": "Acurácia", "value": pct(m["accuracy"]), "hint": "acertos nas duas classes", "highlight": True},
+        {"label": "Precisão (Fratura)", "value": pct(m["precision"]),
          "hint": "alertas de fratura que estavam corretos"},
-        {"label": "F1-Score (Fratura)", "value": pct(metrics["f1_score"]),
+        {"label": "Recall / Sensibilidade", "value": pct(m["recall"]),
+         "hint": "fraturas reais que o modelo detecta"},
+        {"label": "F1-Score (Fratura)", "value": pct(m["f1_score"]),
          "hint": "equilíbrio precisão × recall"},
-        {"label": "Acurácia geral", "value": pct(metrics["accuracy"]),
-         "hint": "acertos nas duas classes"},
-        {"label": "AUC (ROC)", "value": num(metrics.get("auc", 0), 3),
+        {"label": "AUC (ROC)", "value": num(m["auc"], 3),
          "hint": "separação entre as classes (1 = perfeita)"},
     ])
     st.caption(
-        f"Avaliado em {num(metrics['test_size'])} radiografias de teste (holdout real) · "
-        f"{metrics.get('model_architecture', '')} · treinado em "
-        f"{pd.Timestamp(metrics['trained_at']).strftime('%d/%m/%Y')}"
+        f"{set_label}: {num(m['size'])} radiografias · {metrics.get('model_architecture', '')} · "
+        f"{num(metrics.get('model_params', 0))} parâmetros · limiar {pct(metrics['threshold'], 0)}"
     )
 
     tabs = st.tabs([
@@ -390,7 +427,7 @@ def render():
         ":material/groups: Equipe",
     ])
     with tabs[0]:
-        _tab_desempenho(metrics)
+        _tab_desempenho(metrics, m, set_label)
     with tabs[1]:
         _tab_curvas(metrics, load_curves())
     with tabs[2]:
@@ -403,17 +440,12 @@ def render():
     st.write("")
     with st.expander("Limitações do modelo (leia antes de usar os números)", icon=":material/warning:"):
         st.markdown(
-            "- **Mesmo dataset:** o desempenho vale para imagens parecidas com as do treino; "
-            "radiografias de outros equipamentos ou projeções podem ter desempenho bem pior.\n"
-            "- **Possível viés de fonte:** se cada classe veio de origens diferentes, a rede pode aprender "
-            "características da fonte (contraste, marcações, gesso) em vez da fratura.\n"
+            "- **Cópias rotacionadas no teste:** o teste foi sorteado do treino imagem a imagem, e cópias "
+            "rotacionadas da mesma radiografia ficaram nos dois conjuntos. Por isso a validação é a referência.\n"
+            "- **Mudança de distribuição:** a validação vem de outra origem; as imagens *Sem fratura* são bem "
+            "mais claras nela do que no treino.\n"
+            "- **Overfitting:** a acurácia de treino sobe enquanto a de validação estagna.\n"
             "- **Probabilidades não calibradas:** ver curva de calibração na aba *Curvas*.\n"
-            "- **Sem validação clínica:** não houve avaliação por especialistas, análise de subgrupos "
-            "nem estudo prospectivo. Não é um dispositivo médico."
+            "- **Sem validação clínica:** não houve avaliação por especialistas nem teste em dados externos. "
+            "Não é um dispositivo médico."
         )
-    disclaimer(
-        "Métricas calculadas para a classe <b>Fraturado</b> (classe de interesse clínico) no conjunto de "
-        "teste, que nunca foi usado no treino. Fonte: <code>models/metrics.json</code> e "
-        "<code>models/evaluation_curves.json</code>.",
-        icon="📌",
-    )

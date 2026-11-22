@@ -139,7 +139,7 @@ def _report_text(analysis: dict) -> str:
         f"Resultado do modelo:     {r['label']}",
         f"Prob. estimada fratura:  {pct(r['raw_probability_fractured'])}",
         f"Limiar de decisão:       {pct(THRESHOLD, 0)}",
-        "Modelo:                  MobileNetV2 (Transfer Learning)",
+        "Modelo:                  CNN básica (treinada do zero)",
         "",
         "AVISO: estimativa automática de um modelo experimental, sem calibração",
         "clínica. Não substitui o laudo do médico radiologista responsável.",
@@ -167,7 +167,7 @@ def _render_result(analysis: dict):
             st.image(analysis["image"], width="stretch")
         else:
             st.image(analysis["overlay"], width="stretch")
-            st.caption("Grad-CAM: região que mais influenciou a predição (aproximada, grade 7×7).")
+            st.caption("Grad-CAM: região que mais influenciou a predição (aproximada).")
 
     with col_res:
         card_class = "gi-result-fractured" if is_fractured else "gi-result-ok"
@@ -192,7 +192,7 @@ def _render_result(analysis: dict):
                     <div class="gi-fact"><div class="gi-fact-label">Confiança na classe</div><div class="gi-fact-value">{pct(result['confidence'])}</div></div>
                     <div class="gi-fact"><div class="gi-fact-label">Resolução original</div><div class="gi-fact-value">{num(width)} × {num(height)} px</div></div>
                     <div class="gi-fact"><div class="gi-fact-label">Analisado em</div><div class="gi-fact-value">{analysis['analyzed_at'].strftime('%d/%m/%Y %H:%M')}</div></div>
-                    <div class="gi-fact"><div class="gi-fact-label">Modelo</div><div class="gi-fact-value">MobileNetV2</div></div>
+                    <div class="gi-fact"><div class="gi-fact-label">Modelo</div><div class="gi-fact-value">CNN básica</div></div>
                 </div>
             </div>
             """
@@ -210,10 +210,9 @@ def _render_result(analysis: dict):
     with st.expander("Como interpretar este resultado"):
         st.markdown(
             "- **Probabilidade estimada** é a saída da função *sigmoid* do modelo. Ela **não é uma "
-            "probabilidade clínica calibrada** — no conjunto de teste, o modelo tende a superestimar "
-            "a chance de fratura na faixa intermediária (ver curva de calibração no painel gerencial).\n"
+            "probabilidade clínica calibrada** (ver a curva de calibração no painel gerencial).\n"
             "- **Mapa de atenção (Grad-CAM)** mostra *para onde o modelo olhou*, não uma segmentação "
-            "da fratura. A área marcada é aproximada (grade 7×7 ampliada para a imagem).\n"
+            "da fratura. A área marcada é aproximada (grade 52×52 ampliada para a imagem).\n"
             f"- O **limiar de decisão** é {pct(THRESHOLD, 0)}: acima dele, a imagem é classificada como "
             "*Fraturado*. Resultados a menos de 15 pontos do limiar são sinalizados como limítrofes.\n"
             "- O modelo só conhece radiografias parecidas com as do dataset de treino: imagens de "
